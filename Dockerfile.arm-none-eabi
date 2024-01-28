@@ -1,0 +1,62 @@
+FROM ubuntu:22.04
+
+ENV DEBIAN_FRONTEND=noninteractive
+RUN apt update
+# install dependencies for python3.8
+RUN apt install -y build-essential zlib1g-dev libncurses5-dev libgdbm-dev \
+    libnss3-dev libssl-dev libreadline-dev libffi-dev wget curl git \
+    file locales
+#attempt to fix libncursesw.so.5
+RUN apt install libncurses5 -y
+RUN apt install libncursesw5 -y
+# Needed for python
+RUN apt install -y libgmp-dev
+# Needed for xml support in gdb
+RUN apt install -y libexpat-dev
+# Utils for debugging
+RUN apt install -y gdb gdbserver neovim socat
+
+RUN locale-gen en_US.UTF-8
+ENV LANG en_US.UTF-8
+ENV LANGUAGE en_US:en
+ENV LC_ALL en_US.UTF-8
+ENV LC_CTYPE C.UTF-8
+
+# install arm toolchain
+# If on a x86_64 machine
+# RUN curl -Lo gcc-arm-none-eabi.tar.xz "https://developer.arm.com/-/media/Files/downloads/gnu/12.2.Rel1/binrel/arm-gnu-toolchain-12.2.Rel1-x86_64-arm-none-eabi.tar.xz"
+# On m1/aarch64
+RUN curl -Lo gcc-arm-none-eabi.tar.xz "https://developer.arm.com/-/media/Files/downloads/gnu/13.2.rel1/binrel/arm-gnu-toolchain-13.2.rel1-aarch64-arm-none-eabi.tar.xz"
+RUN mkdir -p /opt/gcc-arm-none-eabi
+RUN tar xf gcc-arm-none-eabi.tar.xz --strip-components=1 -C /opt/gcc-arm-none-eabi
+ENV PATH "${PATH}:/opt/gcc-arm-none-eabi/bin"
+
+# test arm-none-gcc
+RUN arm-none-eabi-gcc --version
+
+# Install python3.8 from sources
+WORKDIR /tmp
+RUN wget https://www.python.org/ftp/python/3.8.12/Python-3.8.12.tgz
+RUN tar -xf Python-3.8.12.tgz
+WORKDIR /tmp/Python-3.8.12
+RUN ./configure --enable-optimizations --enable-shared --prefix=/usr/local LDFLAGS="-Wl,--rpath=/usr/local/lib"
+RUN make -j 4
+# Error here
+RUN make altinstall
+RUN rm -rf /tmp/Pyth*
+
+# Test arm-none-gdb binary can run (needs libpython3.8.so)
+RUN LD_LIBRARY_PATH=/usr/local/lib arm-none-eabi-gdb --version
+
+# Compile GDB from source, targeting arm-none-eabi
+WORKDIR /tmp/
+RUN wget https://ftp.gnu.org/gnu/gdb/gdb-13.2.tar.xz
+RUN tar -xf gdb-13.2.tar.xz
+WORKDIR /tmp/gdb-13.2
+RUN ./configure --target=arm-none-eabi --enable-multilib --enable-interwork --with-expat
+RUN make -j4
+RUN make install
+
+WORKDIR /root
+RUN git clone https://github.com/hugsy/gef.git
+RUN git clone https://github.com/hugsy/gef-extras.git
